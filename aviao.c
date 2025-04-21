@@ -5,6 +5,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/types.h>
+#include <math.h>
 
 #define MAX_AVIOES 20
 #define VELOCIDADE_BASE 0.05
@@ -69,10 +70,19 @@ int main(int argc, char *argv[]) {
             aeronaves[aeronave_id].x -= aeronaves[aeronave_id].velocidade;
         }
 
-        if ((aeronaves[aeronave_id].lado == 0 && aeronaves[aeronave_id].x >= 0.5) ||
-            (aeronaves[aeronave_id].lado == 1 && aeronaves[aeronave_id].x <= 0.5)) {
+        if (aeronaves[aeronave_id].y > 0.5) {
+            aeronaves[aeronave_id].y -= aeronaves[aeronave_id].velocidade;
+            if (aeronaves[aeronave_id].y < 0.5) aeronaves[aeronave_id].y = 0.5;
+        } else if (aeronaves[aeronave_id].y < 0.5) {
+            aeronaves[aeronave_id].y += aeronaves[aeronave_id].velocidade;
+            if (aeronaves[aeronave_id].y > 0.5) aeronaves[aeronave_id].y = 0.5;
+        }
+
+        if (fabs(aeronaves[aeronave_id].x - 0.5) < 0.01 && fabs(aeronaves[aeronave_id].y - 0.5) < 0.01) {
+            aeronaves[aeronave_id].x = 0.5;
+            aeronaves[aeronave_id].y = 0.5;
             aeronaves[aeronave_id].status = 1;
-            printf("Aeronave %c pousou.\n", 'A'+aeronave_id);
+            printf("Aeronave %c pousou.\n", 'A' + aeronave_id);
             exit(0);
         }
 
