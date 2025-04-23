@@ -7,24 +7,64 @@
 #include <sys/types.h>
 #include <math.h>
 
-#define MAX_AVIOES 20
-#define VELOCIDADE_BASE 0.05
 #define CHAVE_MEM 1234
 
 typedef struct {
     pid_t pid;
     float x, y;
-    int pista;      // 3, 6, 18, 27
-    int lado;       // 0: W, 1: E
-    int status;     // 0: ativo, 1: pousou, 2: colidiu
+    int pista;
+    int lado;
+    int status;
     float velocidade;
 } Aeronave;
 
 Aeronave* aeronaves;
+int aeronave_id;
+int total_avioes;
+static int velocidadeReduzida = 0;
+
+void reduzVelocidade(int sinal) {
+    if (velocidadeReduzida == 0) {
+        aeronaves[aeronave_id].velocidade = aeronaves[aeronave_id].velocidade/2;
+        velocidadeReduzida = 1;
+        printf("Aeronave %c reduziu a velocidade!\n", 'A' + aeronave_id);
+    } else {
+        aeronaves[aeronave_id].velocidade = 0.05;
+        velocidadeReduzida = 0;
+        printf("Aeronave %c retornou à velocidade normal!\n", 'A' + aeronave_id);
+    }
+}
+
+void alterarPista(int sinal) {
+    if (aeronaves[aeronave_id].lado == 0) {
+        if (aeronaves[aeronave_id].pista == 3) {
+            aeronaves[aeronave_id].pista = 18;
+            printf("Aeronave %c mudou para a pista 18!\n", 'A' + aeronave_id);
+        } else {
+            aeronaves[aeronave_id].pista = 3;
+            printf("Aeronave %c mudou para a pista 3!\n", 'A' + aeronave_id);
+        }
+    } else {
+        if (aeronaves[aeronave_id].pista == 6) {
+            aeronaves[aeronave_id].pista = 27;
+            printf("Aeronave %c mudou para a pista 27!\n", 'A' + aeronave_id);
+        } else {
+            aeronaves[aeronave_id].pista = 6;
+            printf("Aeronave %c mudou para a pista 6!\n", 'A' + aeronave_id);
+        }
+    }
+}
 
 int main(int argc, char *argv[]) {
-    int aeronave_id = atoi(argv[1]);
-    int shmid = shmget(CHAVE_MEM, sizeof(Aeronave) * MAX_AVIOES, 0666);
+    if (argc != 3) {
+        printf("Uso: ./aviao <id> <total_avioes>\n");
+        exit(1);
+    }
+
+    aeronave_id = atoi(argv[1]);
+    total_avioes = atoi(argv[2]);
+
+    int shmid = shmget(CHAVE_MEM, sizeof(Aeronave) * total_avioes, 0666);
     aeronaves = (Aeronave*) shmat(shmid, NULL, 0);
 
     srand(getpid());
@@ -37,14 +77,14 @@ int main(int argc, char *argv[]) {
     int lado_sorteado = rand() % 2;
     if (lado_sorteado == 0) {
         aeronaves[aeronave_id].x = 0.0;
-        aeronaves[aeronave_id].lado = 0; // W
+        aeronaves[aeronave_id].lado = 0;
     } else {
         aeronaves[aeronave_id].x = 1.0;
-        aeronaves[aeronave_id].lado = 1; // E
+        aeronaves[aeronave_id].lado = 1;
     }
 
-    aeronaves[aeronave_id].y = (rand() % 100) / 100.0; // y entre 0 e 1
-    aeronaves[aeronave_id].velocidade = VELOCIDADE_BASE;
+    aeronaves[aeronave_id].y = (rand() % 100) / 100.0;
+    aeronaves[aeronave_id].velocidade = 0.05;
 
     int pista_sorteada = rand() % 2;
     if (aeronaves[aeronave_id].lado == 0) {
@@ -62,6 +102,9 @@ int main(int argc, char *argv[]) {
     }
 
     aeronaves[aeronave_id].status = 0;
+
+    signal(SIGUSR1, reduzVelocidade);
+    signal(SIGUSR2, alterarPista);
 
     while (1) {
         if (aeronaves[aeronave_id].lado == 0) {
