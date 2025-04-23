@@ -9,7 +9,6 @@
 #include <math.h>
 #include <string.h>
 
-#define VELOCIDADE_BASE 0.05
 #define CHAVE_MEM 1234
 
 typedef struct {
