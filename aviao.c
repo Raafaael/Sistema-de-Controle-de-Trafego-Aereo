@@ -70,8 +70,7 @@ int main(int argc, char *argv[]) {
     srand(getpid());
     int atraso = rand() % 3;
     sleep(atraso);
-    printf("Aeronave %c aguardou %d segundos antes de entrar no espaço aéreo...\n", 'A' + aeronave_id, atraso);
-
+    
     aeronaves[aeronave_id].pid = getpid();
 
     int lado_sorteado = rand() % 2;
@@ -105,6 +104,9 @@ int main(int argc, char *argv[]) {
 
     signal(SIGUSR1, reduzVelocidade);
     signal(SIGUSR2, alterarPista);
+
+    kill(getpid(), SIGSTOP);
+    printf("Aeronave %c aguardou %d segundos antes de entrar no espaço aéreo...\n", 'A' + aeronave_id, atraso);
 
     while (1) {
         if (aeronaves[aeronave_id].lado == 0) {

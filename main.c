@@ -142,14 +142,13 @@ int main(int argc, char *argv[]) {
     }
 
     sleep(1);
-    pausar_aeronaves(n);
 
     printf("\nComandos disponiveis:\n\n");
-    printf("i - Iniciar aeronaves\n");
-    printf("p - Pausar aeronaves\n");
-    printf("r - Executar ciclo Round-Robin\n");
-    printf("s - Status das aeronaves\n");
-    printf("q - Finalizar simulacao\n");
+    printf("1 - Iniciar aeronaves\n");
+    printf("2 - Pausar aeronaves\n");
+    printf("3 - Executar ciclo Round-Robin\n");
+    printf("4 - Status das aeronaves\n");
+    printf("5 - Finalizar simulacao\n");
 
     char comando;
     while(1){
@@ -157,23 +156,23 @@ int main(int argc, char *argv[]) {
         scanf("%c", &comando);
 
         switch(comando){
-            case 'i':
+            case '1':
                 retomar_aeronaves(n);
                 printf("Aeronaves iniciadas\n");
                 break;
-            case 'p':
+            case '2':
                 pausar_aeronaves(n);
                 printf("Aeronaves pausadas\n");
                 break;
-            case 'r':
+            case '3':
                 round_robin(n);
                 checar_colisoes(n);
                 print_status(n);
                 break;
-            case 's':
+            case '4':
                 print_status(n);
                 break;
-            case 'q':
+            case '5':
                 for(int i = 0; i < n; i++){
                     if(aeronaves[i].status == 0){
                         kill(aeronaves[i].pid, SIGKILL);
