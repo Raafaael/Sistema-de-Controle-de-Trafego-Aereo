@@ -83,6 +83,32 @@ void checar_colisoes(int n) {
     }
 }
 
+void pausar_aeronaves(int n) {
+    for (int i = 0; i < n; i++) {
+        if (aeronaves[i].status == 0) {
+            kill(aeronaves[i].pid, SIGSTOP);
+        }
+    }
+}
+
+void retomar_aeronaves(int n) {
+    for (int i = 0; i < n; i++) {
+        if (aeronaves[i].status == 0) {
+            kill(aeronaves[i].pid, SIGCONT);
+        }
+    }
+}
+
+void round_robin(int n) {
+    for (int i = 0; i < n; i++) {
+        if (aeronaves[i].status == 0) {
+            kill(aeronaves[i].pid, SIGCONT);
+            sleep(1);
+            kill(aeronaves[i].pid, SIGSTOP);
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         printf("Uso: ./main <n_avioes>\n");
@@ -116,34 +142,63 @@ int main(int argc, char *argv[]) {
     }
 
     sleep(1);
-    for (int i = 0; i < n; i++) {
-        kill(aeronaves[i].pid, SIGSTOP);
-    }
+    pausar_aeronaves(n);
 
-    while (1) {
+    printf("\nComandos disponiveis:\n\n");
+    printf("i - Iniciar aeronaves\n");
+    printf("p - Pausar aeronaves\n");
+    printf("r - Executar ciclo Round-Robin\n");
+    printf("s - Status das aeronaves\n");
+    printf("q - Finalizar simulacao\n");
+
+    char comando;
+    while(1){
+        printf("\nDigite um comando: ");
+        scanf("%c", &comando);
+
+        switch(comando){
+            case 'i':
+                retomar_aeronaves(n);
+                printf("Aeronaves iniciadas\n");
+                break;
+            case 'p':
+                pausar_aeronaves(n);
+                printf("Aeronaves pausadas\n");
+                break;
+            case 'r':
+                round_robin(n);
+                checar_colisoes(n);
+                print_status(n);
+                break;
+            case 's':
+                print_status(n);
+                break;
+            case 'q':
+                for(int i = 0; i < n; i++){
+                    if(aeronaves[i].status == 0){
+                        kill(aeronaves[i].pid, SIGKILL);
+                    }
+                }
+                while(wait(NULL) > 0);
+                shmdt(aeronaves);
+                shmctl(shmid, IPC_RMID, NULL);
+                printf("Simulacao finalizada\n");
+                return 0;
+            default:
+                printf("\nComando invalido\n");
+        }
+
         int ativos = 0;
-
         for (int i = 0; i < n; i++) {
             if (aeronaves[i].status == 0) {
-                kill(aeronaves[i].pid, SIGCONT);
-                sleep(1);
-                kill(aeronaves[i].pid, SIGSTOP);
                 ativos++;
             }
         }
-
-        checar_colisoes(n);
-        print_status(n);
-
-        if (ativos == 0)
-            break;
+        if (ativos == 0) {
+            printf("\nTodos os avioes pousaram ou foram eliminados.\n");
+            shmdt(aeronaves);
+            shmctl(shmid, IPC_RMID, NULL);
+            return 0;
+        }
     }
-
-    while (wait(NULL) > 0);
-
-    printf("\nTodos os aviões pousaram ou foram eliminados.\n");
-
-    shmdt(aeronaves);
-    shmctl(shmid, IPC_RMID, NULL);
-    return 0;
 }
