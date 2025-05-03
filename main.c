@@ -49,7 +49,6 @@ void print_status(int n) {
                aeronaves[i].pista, lado, status, aeronaves[i].velocidade);
     }
     printf("--------------------------------\n");
-    //fflush(stdout);
 }
 
 void checar_colisoes(int n) {
