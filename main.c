@@ -6,6 +6,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/types.h>
+#include <sys/select.h>
 #include <math.h>
 #include <string.h>
 
@@ -21,6 +22,8 @@ typedef struct {
 } Aeronave;
 
 Aeronave* aeronaves;
+
+int ciclo_ativo = 0;
 
 void print_status(int n) {
     printf("\n----- STATUS DAS AERONAVES -----\n");
@@ -46,6 +49,7 @@ void print_status(int n) {
                aeronaves[i].pista, lado, status, aeronaves[i].velocidade);
     }
     printf("--------------------------------\n");
+    //fflush(stdout);
 }
 
 void checar_colisoes(int n) {
@@ -91,15 +95,7 @@ void pausar_aeronaves(int n) {
     }
 }
 
-void retomar_aeronaves(int n) {
-    for (int i = 0; i < n; i++) {
-        if (aeronaves[i].status == 0) {
-            kill(aeronaves[i].pid, SIGCONT);
-        }
-    }
-}
-
-void round_robin(int n) {
+void iniciar_aeronaves(int n) {
     for (int i = 0; i < n; i++) {
         if (aeronaves[i].status == 0) {
             kill(aeronaves[i].pid, SIGCONT);
@@ -146,58 +142,109 @@ int main(int argc, char *argv[]) {
     printf("\nComandos disponiveis:\n\n");
     printf("1 - Iniciar aeronaves\n");
     printf("2 - Pausar aeronaves\n");
-    printf("3 - Executar ciclo Round-Robin\n");
+    printf("3 - Retomar aeronaves\n");
     printf("4 - Status das aeronaves\n");
     printf("5 - Finalizar simulacao\n");
 
     char comando;
+    int start = 0;
+    printf("\nDigite um comando: ");
     while(1){
-        printf("\nDigite um comando: ");
-        scanf("%c", &comando);
-
-        switch(comando){
-            case '1':
-                retomar_aeronaves(n);
-                printf("Aeronaves iniciadas\n");
-                break;
-            case '2':
-                pausar_aeronaves(n);
-                printf("Aeronaves pausadas\n");
-                break;
-            case '3':
-                round_robin(n);
-                checar_colisoes(n);
-                print_status(n);
-                break;
-            case '4':
-                print_status(n);
-                break;
-            case '5':
-                for(int i = 0; i < n; i++){
-                    if(aeronaves[i].status == 0){
-                        kill(aeronaves[i].pid, SIGKILL);
+        if(!ciclo_ativo){
+            scanf("%c", &comando);
+            switch(comando){
+                case '1':
+                    if(start){
+                        printf("Aeronaves ja estao inicializadas\n");
                     }
+                    else{
+                        ciclo_ativo = 1;
+                        start = 1;
+                        iniciar_aeronaves(n);
+                        printf("Aeronaves inicializadas\n");
+                    }
+                    break;
+                case '2':
+                    printf("Aeronaves nao estao ativas\n");
+                    break;
+                case '3':
+                    if(!start){
+                        printf("Aeronaves nao foram inicializadas\n");
+                    }
+                    else{
+                        ciclo_ativo = 1;
+                        printf("Voo das aeronaves retomado\n");
+                        iniciar_aeronaves(n);
+                    }
+                    break;
+                case '4':
+                    print_status(n);
+                    break;
+                case '5':
+                    for(int i = 0; i < n; i++){
+                        if(aeronaves[i].status == 0){
+                            kill(aeronaves[i].pid, SIGKILL);
+                        }
+                    }
+                    while(wait(NULL) > 0);
+                    shmdt(aeronaves);
+                    shmctl(shmid, IPC_RMID, NULL);
+                    printf("Simulacao finalizada\n");
+                    return 0;
+                default:
+                    printf("\nDigite um comando: ");
+            }   
+        }
+        if(ciclo_ativo){
+            iniciar_aeronaves(n);
+            checar_colisoes(n);
+
+            fd_set read_terminal;
+            struct timeval timeout;
+            FD_ZERO(&read_terminal);
+            FD_SET(STDIN_FILENO, &read_terminal);
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 100000;
+
+            int ready = select(STDIN_FILENO + 1, &read_terminal, NULL, NULL, &timeout);
+            if(ready > 0 && FD_ISSET(STDIN_FILENO, &read_terminal)){
+                scanf("%c", &comando);
+                switch(comando){
+                    case '2':
+                        ciclo_ativo = 0;
+                        pausar_aeronaves;
+                        printf("Aeronaves pausadas\n");
+                        break;
+                    case '4':
+                        print_status(n);
+                        break;
+                    case '5':
+                        for(int i = 0; i < n; i++){
+                            if(aeronaves[i].status == 0){
+                                kill(aeronaves[i].pid, SIGKILL);
+                            }
+                        }
+                        while(wait(NULL) > 0);
+                        shmdt(aeronaves);
+                        shmctl(shmid, IPC_RMID, NULL);
+                        printf("Simulacao finalizada\n");
+                        return 0;
+                    default:
+                        ("\nDigite um comando: ");
                 }
-                while(wait(NULL) > 0);
+            }
+            int ativos = 0;
+            for (int i = 0; i < n; i++) {
+                if (aeronaves[i].status == 0) {
+                    ativos++;
+                }
+            }
+            if(ativos == 0){
+                printf("\nTodos os avioes pousaram ou foram eliminados\n");
                 shmdt(aeronaves);
                 shmctl(shmid, IPC_RMID, NULL);
-                printf("Simulacao finalizada\n");
                 return 0;
-            default:
-                printf("\nComando invalido\n");
-        }
-
-        int ativos = 0;
-        for (int i = 0; i < n; i++) {
-            if (aeronaves[i].status == 0) {
-                ativos++;
-            }
-        }
-        if (ativos == 0) {
-            printf("\nTodos os avioes pousaram ou foram eliminados.\n");
-            shmdt(aeronaves);
-            shmctl(shmid, IPC_RMID, NULL);
-            return 0;
+            } 
         }
     }
 }
