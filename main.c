@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
                 switch(comando){
                     case '2':
                         ciclo_ativo = 0;
-                        pausar_aeronaves;
+                        pausar_aeronaves(n);
                         printf("Aeronaves pausadas\n");
                         break;
                     case '4':
@@ -229,7 +229,7 @@ int main(int argc, char *argv[]) {
                         printf("Simulacao finalizada\n");
                         return 0;
                     default:
-                        ("\nDigite um comando: ");
+                        printf("\nDigite um comando: ");
                 }
             }
             int ativos = 0;
