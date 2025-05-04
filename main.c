@@ -10,6 +10,8 @@
 #include <string.h>
 
 #define CHAVE_MEM 1234
+#define MAPA_ALTURA 20
+#define MAPA_LARGURA 40 
 
 typedef struct {
     pid_t pid;
@@ -23,10 +25,6 @@ typedef struct {
 Aeronave* aeronaves;
 pid_t ciclo = 0;
 int ciclo_iniciado = 0;
-
-void encerra_aeronaves(int sig){
-    exit(0);
-}
 
 void print_status(int n) {
     printf("\n----- STATUS DAS AERONAVES -----\n");
@@ -107,11 +105,50 @@ void ciclo_aeronaves(int n) {
     }
 }
 
+void exibe_mapa(int n){
+    char mapa[MAPA_ALTURA][MAPA_LARGURA + 1];
+    for(int i = 0; i < MAPA_ALTURA; i++){
+        for(int j = 0; j < MAPA_LARGURA; j++){
+            mapa[i][j] = '.';
+        }
+        mapa[i][MAPA_LARGURA] = '\0';
+    }
+
+    int aeroporto_linha = (int)(0.5 * (MAPA_ALTURA - 1));
+    int aeroporto_coluna = (int)(0.5 * (MAPA_LARGURA - 1));
+    mapa[aeroporto_linha][aeroporto_coluna] = 'X';
+    mapa[aeroporto_linha][aeroporto_coluna + 1] = 'X';
+
+    for(int i = 0; i < n; i++){
+        if (aeronaves[i].status != 0) continue;
+        int linha = (int)(aeronaves[i].y * (MAPA_ALTURA - 1));
+        int coluna = (int)(aeronaves[i].x * (MAPA_LARGURA - 1));
+        if (linha >= 0 && linha < MAPA_ALTURA && coluna >= 0 && coluna < MAPA_LARGURA){
+            mapa[linha][coluna] = 'A' + i;
+        }
+
+    }
+    printf("\n=== MAPA DAS AERONAVES ===\n");
+    printf("+");
+    for(int i = 0; i < MAPA_LARGURA; i++){
+        printf("-");
+    }
+    printf("+\n");
+    for(int i = 0; i < MAPA_ALTURA; i++){
+        printf("|%s|\n", mapa[i]);
+    }
+    printf("+");
+    for(int i = 0; i < MAPA_LARGURA; i++){
+        printf("-");
+    }
+    printf("+\n");
+}
+
 void ciclo_rr(int n){
-    signal(SIGTERM, encerra_aeronaves);
     while(1){
         ciclo_aeronaves(n);
         checar_colisoes(n);
+        exibe_mapa(n);
         sleep(1);
     }
 }
@@ -161,7 +198,6 @@ int main(int argc, char *argv[]) {
     printf("\nDigite um comando: ");
     while(1){
         scanf("%c", &comando);
-
         switch(comando){
             case '1':
                 if (ciclo_iniciado){
@@ -204,8 +240,7 @@ int main(int argc, char *argv[]) {
                 break;
             case '5':
                 if(ciclo_iniciado){
-                    kill(ciclo, SIGTERM);
-                    waitpid(ciclo, NULL, 0);
+                    kill(ciclo, SIGKILL);
                 }
                 for(int i = 0; i < n; i++){
                     if(aeronaves[i].status == 0){
@@ -229,8 +264,7 @@ int main(int argc, char *argv[]) {
         }
         if (ativos == 0) {
             if(ciclo_iniciado){
-                kill(ciclo, SIGTERM);
-                waitpid(ciclo, NULL, 0);
+                kill(ciclo, SIGKILL);
             }
             printf("\nTodos os avioes pousaram ou foram eliminados.\n");
             shmdt(aeronaves);
