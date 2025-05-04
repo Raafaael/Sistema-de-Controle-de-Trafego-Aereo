@@ -106,7 +106,7 @@ int main(int argc, char* argv[]) {
 
     aeronaves[aeronave_id].y = (rand() % 100) / 100.0;
 
-    velocidadeBase = 0.025 + ((rand() % 100) / 100.0) * 0.025;
+    velocidadeBase = 0.05 + ((rand() % 100) / 100.0) * 0.025;
     aeronaves[aeronave_id].velocidade = velocidadeBase;
 
     aeronaves[aeronave_id].status = 0;
@@ -137,8 +137,8 @@ int main(int argc, char* argv[]) {
     while (1) {
         float dx = aeronaves[aeronave_id].x - 0.5;
         float dy = aeronaves[aeronave_id].y - 0.5;
-        float distancia = sqrt(dx * dx + dy * dy); // Distância até o centro da pista
-        aeronaves[aeronave_id].velocidade = 0.01 + velocidadeBase * distancia; // Aumenta a velocidade conforme se aproxima do centro
+        float distancia = dx * dx + dy * dy; // Distância ao centro (0.5, 0.5)
+        aeronaves[aeronave_id].velocidade = 0.01 + velocidadeBase * distancia; // Variação da velocidade dependendo da distância do centro
 
         if (aeronaves[aeronave_id].lado == 0) {
             aeronaves[aeronave_id].x += aeronaves[aeronave_id].velocidade;

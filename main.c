@@ -189,9 +189,9 @@ void ciclo_rr(int n) {
         }
         if (ativos == 0) {
             kill(getppid(), SIGUSR1);
+            sleep(1);
             exit(0);
         }
-        sleep(1);
     }
 }
 
