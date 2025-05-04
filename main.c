@@ -21,6 +21,12 @@ typedef struct {
 } Aeronave;
 
 Aeronave* aeronaves;
+pid_t ciclo = 0;
+int ciclo_iniciado = 0;
+
+void encerra_aeronaves(int sig){
+    exit(0);
+}
 
 void print_status(int n) {
     printf("\n----- STATUS DAS AERONAVES -----\n");
@@ -91,21 +97,22 @@ void pausar_aeronaves(int n) {
     }
 }
 
-void retomar_aeronaves(int n) {
-    for (int i = 0; i < n; i++) {
-        if (aeronaves[i].status == 0) {
-            kill(aeronaves[i].pid, SIGCONT);
-        }
-    }
-}
-
-void round_robin(int n) {
+void ciclo_aeronaves(int n) {
     for (int i = 0; i < n; i++) {
         if (aeronaves[i].status == 0) {
             kill(aeronaves[i].pid, SIGCONT);
             sleep(1);
             kill(aeronaves[i].pid, SIGSTOP);
         }
+    }
+}
+
+void ciclo_rr(int n){
+    signal(SIGTERM, encerra_aeronaves);
+    while(1){
+        ciclo_aeronaves(n);
+        checar_colisoes(n);
+        sleep(1);
     }
 }
 
@@ -146,33 +153,60 @@ int main(int argc, char *argv[]) {
     printf("\nComandos disponiveis:\n\n");
     printf("1 - Iniciar aeronaves\n");
     printf("2 - Pausar aeronaves\n");
-    printf("3 - Executar ciclo Round-Robin\n");
+    printf("3 - Retomar aeronaves\n");
     printf("4 - Status das aeronaves\n");
     printf("5 - Finalizar simulacao\n");
 
     char comando;
+    printf("\nDigite um comando: ");
     while(1){
-        printf("\nDigite um comando: ");
         scanf("%c", &comando);
 
         switch(comando){
             case '1':
-                retomar_aeronaves(n);
-                printf("Aeronaves iniciadas\n");
+                if (ciclo_iniciado){
+                    printf("Aeronaves ja foram iniciadas, use 3 para retomar\n");
+                }
+                else{
+                    ciclo_iniciado = 1;
+                    printf("Aeronaves inicializadas\n");
+                    ciclo = fork();
+                    if(ciclo == 0){
+                        ciclo_rr(n);
+                    }
+                    else if(ciclo < 0){
+                        perror("Erro ao iniciar aeronaves\n");
+                        return 1;
+                    }
+                }
                 break;
             case '2':
-                pausar_aeronaves(n);
-                printf("Aeronaves pausadas\n");
+                if(!ciclo_iniciado){
+                    printf("Aeronaves nao foram iniciadas\n");
+                }
+                else{
+                    kill(ciclo, SIGSTOP);
+                    pausar_aeronaves(n);
+                    printf("Aeronaves pausadas\n");
+                }
                 break;
             case '3':
-                round_robin(n);
-                checar_colisoes(n);
-                print_status(n);
+                if(!ciclo_iniciado){
+                    printf("Aeronaves nao inicializadas, utilize 1 para iniciar\n");
+                }
+                else{
+                    kill(ciclo, SIGCONT);
+                    printf("Aeronaves retomadas\n");
+                }
                 break;
             case '4':
                 print_status(n);
                 break;
             case '5':
+                if(ciclo_iniciado){
+                    kill(ciclo, SIGTERM);
+                    waitpid(ciclo, NULL, 0);
+                }
                 for(int i = 0; i < n; i++){
                     if(aeronaves[i].status == 0){
                         kill(aeronaves[i].pid, SIGKILL);
@@ -184,7 +218,7 @@ int main(int argc, char *argv[]) {
                 printf("Simulacao finalizada\n");
                 return 0;
             default:
-                printf("\nComando invalido\n");
+                printf("\nDigite um comando: ");
         }
 
         int ativos = 0;
@@ -194,6 +228,10 @@ int main(int argc, char *argv[]) {
             }
         }
         if (ativos == 0) {
+            if(ciclo_iniciado){
+                kill(ciclo, SIGTERM);
+                waitpid(ciclo, NULL, 0);
+            }
             printf("\nTodos os avioes pousaram ou foram eliminados.\n");
             shmdt(aeronaves);
             shmctl(shmid, IPC_RMID, NULL);
