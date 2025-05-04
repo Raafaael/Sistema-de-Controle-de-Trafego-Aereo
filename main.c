@@ -153,6 +153,26 @@ void ciclo_rr(int n){
     }
 }
 
+void monitorar(int n, pid_t main_pid, pid_t ciclo_pid){
+    while(1){
+        int ativos = 0;
+        for(int i = 0; i < n; i++){
+            if(aeronaves[i].status == 0){
+                ativos++;
+            }
+        }
+        if(ativos == 0){
+            if(ciclo_pid){
+                kill(ciclo_pid, SIGKILL);
+            }
+            kill(main_pid, SIGKILL);
+            printf("\nTodos os avioes pousaram ou foram eliminados.\n");
+            exit(0);
+        }
+        sleep(1);
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         printf("Uso: ./main <n_avioes>\n");
@@ -186,6 +206,8 @@ int main(int argc, char *argv[]) {
     }
 
     sleep(1);
+    pid_t monitor;
+    pid_t main_pid = getpid();
 
     printf("\nComandos disponiveis:\n\n");
     printf("1 - Iniciar aeronaves\n");
@@ -212,6 +234,14 @@ int main(int argc, char *argv[]) {
                     }
                     else if(ciclo < 0){
                         perror("Erro ao iniciar aeronaves\n");
+                        return 1;
+                    }
+                    monitor = fork();
+                    if(monitor == 0){
+                        monitorar(n, main_pid, ciclo);
+                    }
+                    else if(monitor < 0){
+                        perror("Erro ao criar processo de monitoramento\n");
                         return 1;
                     }
                 }
@@ -241,6 +271,11 @@ int main(int argc, char *argv[]) {
             case '5':
                 if(ciclo_iniciado){
                     kill(ciclo, SIGKILL);
+                    waitpid(ciclo, NULL, 0);
+                }
+                if(monitor){
+                    kill(monitor, SIGKILL);
+                    waitpid(monitor, NULL, 0);
                 }
                 for(int i = 0; i < n; i++){
                     if(aeronaves[i].status == 0){
@@ -254,22 +289,6 @@ int main(int argc, char *argv[]) {
                 return 0;
             default:
                 printf("\nDigite um comando: ");
-        }
-
-        int ativos = 0;
-        for (int i = 0; i < n; i++) {
-            if (aeronaves[i].status == 0) {
-                ativos++;
-            }
-        }
-        if (ativos == 0) {
-            if(ciclo_iniciado){
-                kill(ciclo, SIGKILL);
-            }
-            printf("\nTodos os avioes pousaram ou foram eliminados.\n");
-            shmdt(aeronaves);
-            shmctl(shmid, IPC_RMID, NULL);
-            return 0;
         }
     }
 }
