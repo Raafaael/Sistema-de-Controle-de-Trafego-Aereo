@@ -101,32 +101,46 @@ void print_status(int n) {
 
 // Função para verificar colisões entre aeronaves
 void checar_colisoes(int n) {
+    int eliminados[n];
     for (int i = 0; i < n; i++) {
-        if (aeronaves[i].status != 0) {
+        eliminados[i] = 0;
+    }
+
+    for (int i = 0; i < n; i++) {
+        if (aeronaves[i].status != 0 || eliminados[i]) { // Se 'i' já colidiu ou não está voando, ignora
             continue;
         }
+
         for (int j = i + 1; j < n; j++) {
-            if (aeronaves[j].status != 0) {
+            if (aeronaves[j].status != 0 || eliminados[j]) { // Se  'j' já colidiu ou não está voando, ignora
                 continue;
             }
-            if (aeronaves[i].lado == aeronaves[j].lado && aeronaves[i].pista == aeronaves[j].pista) {
+
+            if (aeronaves[i].lado == aeronaves[j].lado && aeronaves[i].pista == aeronaves[j].pista) { // Verifica se estão na mesma pista
                 float dx = fabs(aeronaves[i].x - aeronaves[j].x);
                 float dy = fabs(aeronaves[i].y - aeronaves[j].y);
+
                 if (dx < 0.1 && dy < 0.1) {
                     printf("COLISÃO IMINENTE entre %c e %c! Eliminando %c.\n",
-                        'A' + i, 'A' + j, 'A' + i);
+                           'A' + i, 'A' + j, 'A' + i);
+
                     aeronaves[i].status = 2;
                     kill(aeronaves[i].pid, SIGKILL);
                     contadores[i].contColisoes++;
+                    eliminados[i] = 1;
+
+                    break;
                 } else if (dx < 0.25 && dy < 0.25) {
                     float di = fabs(aeronaves[i].x - 0.5);
                     float dj = fabs(aeronaves[j].x - 0.5);
                     int alvo;
-                    if (di < dj) {
+
+                    if (di < dj) { // Verifica se a aeronave 'i' está mais próxima do centro da pista
                         alvo = j;
                     } else {
                         alvo = i;
                     }
+
                     kill(aeronaves[alvo].pid, SIGUSR1);
                     kill(aeronaves[alvo].pid, SIGUSR2);
                 }
@@ -134,6 +148,7 @@ void checar_colisoes(int n) {
         }
     }
 }
+
 
 // Função para pausar aeronaves
 void pausar_aeronaves(int n) {
