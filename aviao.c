@@ -8,9 +8,11 @@
 #include <math.h>
 
 #define CHAVE_MEM 1234
+#define CHAVE_CONTADORES 5678
 
+// Estrutura para armazenar informações de cada aeronave
 typedef struct {
-    pid_t pid;
+    int pid;
     float x, y;
     int pista;
     int lado;
@@ -18,46 +20,54 @@ typedef struct {
     float velocidade;
 } Aeronave;
 
+// Estrutura para armazenar contadores de eventos
+typedef struct {
+    int contReducaoVelocidade;
+    int contMudancasPista;
+    int contColisoes;
+} Contador;
+
 Aeronave* aeronaves;
+Contador* contadores;
 int aeronave_id;
 int total_avioes;
-static int velocidadeReduzida = 0;
+int velocidadeReduzida = 0;
+float velocidadeBase = 0.0;
 
+// Função para simular a redução de velocidade da aeronave
 void reduzVelocidade(int sinal) {
-    if (velocidadeReduzida == 0) {
-        aeronaves[aeronave_id].velocidade = aeronaves[aeronave_id].velocidade/2;
-        velocidadeReduzida = 1;
-        printf("Aeronave %c reduziu a velocidade!\n", 'A' + aeronave_id);
-    } else {
-        aeronaves[aeronave_id].velocidade = 0.05;
-        velocidadeReduzida = 0;
-        printf("Aeronave %c retornou à velocidade normal!\n", 'A' + aeronave_id);
-    }
+    printf("Aeronave %c reduziu a velocidade\n", 'A' + aeronave_id);
+    contadores[aeronave_id].contReducaoVelocidade++;
+    kill(getpid(), SIGSTOP);
 }
 
+// Função para alterar a pista da aeronave
+// A aeronave alterna entre as pistas 3 e 18 ou 6 e 27 dependendo do lado
 void alterarPista(int sinal) {
+    int atual = aeronaves[aeronave_id].pista;
+
     if (aeronaves[aeronave_id].lado == 0) {
-        if (aeronaves[aeronave_id].pista == 3) {
+        if (atual == 3) {
             aeronaves[aeronave_id].pista = 18;
-            printf("Aeronave %c mudou para a pista 18!\n", 'A' + aeronave_id);
         } else {
             aeronaves[aeronave_id].pista = 3;
-            printf("Aeronave %c mudou para a pista 3!\n", 'A' + aeronave_id);
         }
     } else {
-        if (aeronaves[aeronave_id].pista == 6) {
+        if (atual == 6) {
             aeronaves[aeronave_id].pista = 27;
-            printf("Aeronave %c mudou para a pista 27!\n", 'A' + aeronave_id);
         } else {
             aeronaves[aeronave_id].pista = 6;
-            printf("Aeronave %c mudou para a pista 6!\n", 'A' + aeronave_id);
         }
+    }
+
+    if (aeronaves[aeronave_id].pista != atual) {
+        contadores[aeronave_id].contMudancasPista++;
+        printf("Aeronave %c mudou para pista %d\n", 'A' + aeronave_id, aeronaves[aeronave_id].pista);
     }
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     if (argc != 3) {
-        printf("Uso: ./aviao <id> <total_avioes>\n");
         exit(1);
     }
 
@@ -65,50 +75,60 @@ int main(int argc, char *argv[]) {
     total_avioes = atoi(argv[2]);
 
     int shmid = shmget(CHAVE_MEM, sizeof(Aeronave) * total_avioes, 0666);
+    int shcont = shmget(CHAVE_CONTADORES, sizeof(Contador) * total_avioes, 0666);
     aeronaves = (Aeronave*) shmat(shmid, NULL, 0);
+    contadores = (Contador*) shmat(shcont, NULL, 0);
 
     srand(getpid());
     int atraso = rand() % 3;
     sleep(atraso);
-    
-    aeronaves[aeronave_id].pid = getpid();
+    printf("Aeronave %c aguardou %d segundos antes de entrar no espaço aéreo.\n", 'A' + aeronave_id, atraso);
 
-    int lado_sorteado = rand() % 2;
-    if (lado_sorteado == 0) {
+    aeronaves[aeronave_id].pid = getpid();
+    aeronaves[aeronave_id].lado = rand() % 2;
+
+    if (aeronaves[aeronave_id].lado == 0) {
         aeronaves[aeronave_id].x = 0.0;
-        aeronaves[aeronave_id].lado = 0;
     } else {
         aeronaves[aeronave_id].x = 1.0;
-        aeronaves[aeronave_id].lado = 1;
     }
 
     aeronaves[aeronave_id].y = (rand() % 100) / 100.0;
-    aeronaves[aeronave_id].velocidade = 0.05;
 
-    int pista_sorteada = rand() % 2;
+    velocidadeBase = 0.05 + ((rand() % 100) / 100.0) * 0.025;
+    aeronaves[aeronave_id].velocidade = velocidadeBase;
+
+    aeronaves[aeronave_id].status = 0;
+    contadores[aeronave_id].contReducaoVelocidade = 0;
+    contadores[aeronave_id].contMudancasPista = 0;
+    contadores[aeronave_id].contColisoes = 0;
+
+    int sorteio = rand() % 2;
     if (aeronaves[aeronave_id].lado == 0) {
-        if (pista_sorteada == 0) {
+        if (sorteio == 0) {
             aeronaves[aeronave_id].pista = 3;
         } else {
             aeronaves[aeronave_id].pista = 18;
         }
     } else {
-        if (pista_sorteada == 0) {
+        if (sorteio == 0) {
             aeronaves[aeronave_id].pista = 6;
         } else {
             aeronaves[aeronave_id].pista = 27;
         }
     }
 
-    aeronaves[aeronave_id].status = 0;
-
     signal(SIGUSR1, reduzVelocidade);
     signal(SIGUSR2, alterarPista);
 
     kill(getpid(), SIGSTOP);
-    printf("Aeronave %c aguardou %d segundos antes de entrar no espaço aéreo...\n", 'A' + aeronave_id, atraso);
 
     while (1) {
+        float dx = aeronaves[aeronave_id].x - 0.5;
+        float dy = aeronaves[aeronave_id].y - 0.5;
+        float distancia = dx * dx + dy * dy; // Distância ao centro (0.5, 0.5)
+        aeronaves[aeronave_id].velocidade = 0.01 + velocidadeBase * distancia; // Variação da velocidade dependendo da distância do centro
+
         if (aeronaves[aeronave_id].lado == 0) {
             aeronaves[aeronave_id].x += aeronaves[aeronave_id].velocidade;
         } else {
@@ -117,13 +137,19 @@ int main(int argc, char *argv[]) {
 
         if (aeronaves[aeronave_id].y > 0.5) {
             aeronaves[aeronave_id].y -= aeronaves[aeronave_id].velocidade;
-            if (aeronaves[aeronave_id].y < 0.5) aeronaves[aeronave_id].y = 0.5;
+            if (aeronaves[aeronave_id].y < 0.5) {
+                aeronaves[aeronave_id].y = 0.5;
+            }
         } else if (aeronaves[aeronave_id].y < 0.5) {
             aeronaves[aeronave_id].y += aeronaves[aeronave_id].velocidade;
-            if (aeronaves[aeronave_id].y > 0.5) aeronaves[aeronave_id].y = 0.5;
+            if (aeronaves[aeronave_id].y > 0.5) {
+                aeronaves[aeronave_id].y = 0.5;
+            }
         }
 
-        if (fabs(aeronaves[aeronave_id].x - 0.5) < 0.01 && fabs(aeronaves[aeronave_id].y - 0.5) < 0.01) {
+        // Verifica se a aeronave está na pista de pouso
+        if (fabs(aeronaves[aeronave_id].x - 0.5) < 0.01 &&
+            fabs(aeronaves[aeronave_id].y - 0.5) < 0.01) {
             aeronaves[aeronave_id].x = 0.5;
             aeronaves[aeronave_id].y = 0.5;
             aeronaves[aeronave_id].status = 1;

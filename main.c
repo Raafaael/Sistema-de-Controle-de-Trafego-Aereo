@@ -10,11 +10,13 @@
 #include <string.h>
 
 #define CHAVE_MEM 1234
+#define CHAVE_CONTADORES 5678
 #define MAPA_ALTURA 20
-#define MAPA_LARGURA 40 
+#define MAPA_LARGURA 40
 
+// Estrutura para armazenar informações de cada aeronave
 typedef struct {
-    pid_t pid;
+    int pid;
     float x, y;
     int pista;
     int lado;
@@ -22,10 +24,57 @@ typedef struct {
     float velocidade;
 } Aeronave;
 
-Aeronave* aeronaves;
-pid_t ciclo = 0;
-int ciclo_iniciado = 0;
+// Estrutura para armazenar contadores de eventos
+typedef struct {
+    int contReducaoVelocidade;
+    int contMudancasPista;
+    int contColisoes;
+} Contador;
 
+Aeronave* aeronaves;
+Contador* contadores;
+int ciclo = 0;
+int ciclo_iniciado = 0;
+int n;
+int shmid;
+int shcont;
+
+// Função para encerrar o processo de aeronaves
+void encerra_aeronaves(int sig) {
+    exit(0);
+}
+
+// Função para encerrar a simulação e liberar memória compartilhada
+void encerrar_simulacao() {
+    int totalRed = 0, totalMud = 0, totalCol = 0;
+    for (int i = 0; i < n; i++) {
+        totalRed += contadores[i].contReducaoVelocidade;
+        totalMud += contadores[i].contMudancasPista;
+        totalCol += contadores[i].contColisoes;
+    }
+
+    printf("\nResumo final:\n");
+    printf("Reduções de velocidade: %d\n", totalRed);
+    printf("Mudanças de pista: %d\n", totalMud);
+    printf("Colisões: %d\n", totalCol);
+
+    shmdt(aeronaves);
+    shmdt(contadores);
+    shmctl(shmid, IPC_RMID, NULL);
+    shmctl(shcont, IPC_RMID, NULL);
+    exit(0);
+}
+
+// Função para lidar com o sinal de finalização
+void sinal_finalizacao(int sig) {
+    if (ciclo_iniciado) {
+        waitpid(ciclo, NULL, 0);
+    }
+    printf("\nTodos os avioes pousaram ou foram eliminados.\n");
+    encerrar_simulacao();
+}
+
+// Função para imprimir o status das aeronaves
 void print_status(int n) {
     printf("\n----- STATUS DAS AERONAVES -----\n");
     for (int i = 0; i < n; i++) {
@@ -45,64 +94,11 @@ void print_status(int n) {
             status = "COLIDIU";
         }
 
-        printf("Aeronave %c | PID: %d | x: %.2f | y: %.2f | Pista: %d | Lado: %s | Status: %s | Velocidade: %f\n",
-               'A' + i, aeronaves[i].pid, aeronaves[i].x, aeronaves[i].y,
-               aeronaves[i].pista, lado, status, aeronaves[i].velocidade);
+        printf("Aeronave %c | PID: %d | x: %.2f | y: %.2f | Pista: %d | Lado: %s | Status: %s | Velocidade: %.2f\n",
+            'A' + i, aeronaves[i].pid, aeronaves[i].x, aeronaves[i].y,
+            aeronaves[i].pista, lado, status, aeronaves[i].velocidade);
     }
     printf("--------------------------------\n");
-}
-
-void checar_colisoes(int n) {
-    for (int i = 0; i < n; i++) {
-        if (aeronaves[i].status != 0) continue;
-
-        for (int j = i + 1; j < n; j++) {
-            if (aeronaves[j].status != 0) continue;
-
-            if (aeronaves[i].lado == aeronaves[j].lado &&
-                aeronaves[i].pista == aeronaves[j].pista) {
-
-                float dx = fabs(aeronaves[i].x - aeronaves[j].x);
-                float dy = fabs(aeronaves[i].y - aeronaves[j].y);
-
-                if (dx < 0.1 && dy < 0.1) {
-                    printf("COLISÃO IMINENTE entre aeronaves %c e %c na pista %d! Eliminando aeronave %c.\n",
-                           'A' + i, 'A' + j, aeronaves[i].pista, 'A' + i);
-                    kill(aeronaves[i].pid, SIGKILL);
-                    aeronaves[i].status = 2;
-                } else if (dx < 0.15 && dy < 0.15) {
-                    float dist_i = fabs(aeronaves[i].x - 0.5);
-                    float dist_j = fabs(aeronaves[j].x - 0.5);
-
-                    if (dist_i < dist_j) {
-                        kill(aeronaves[j].pid, SIGUSR1);
-                        kill(aeronaves[j].pid, SIGUSR2);
-                    } else {
-                        kill(aeronaves[i].pid, SIGUSR1);
-                        kill(aeronaves[i].pid, SIGUSR2);
-                    }
-                }
-            }
-        }
-    }
-}
-
-void pausar_aeronaves(int n) {
-    for (int i = 0; i < n; i++) {
-        if (aeronaves[i].status == 0) {
-            kill(aeronaves[i].pid, SIGSTOP);
-        }
-    }
-}
-
-void ciclo_aeronaves(int n) {
-    for (int i = 0; i < n; i++) {
-        if (aeronaves[i].status == 0) {
-            kill(aeronaves[i].pid, SIGCONT);
-            sleep(1);
-            kill(aeronaves[i].pid, SIGSTOP);
-        }
-    }
 }
 
 void exibe_mapa(int n){
@@ -144,151 +140,180 @@ void exibe_mapa(int n){
     printf("+\n");
 }
 
-void ciclo_rr(int n){
-    while(1){
+// Função para verificar colisões entre aeronaves
+void checar_colisoes(int n) {
+    int eliminados[n];
+    for (int i = 0; i < n; i++) {
+        eliminados[i] = 0;
+    }
+
+    for (int i = 0; i < n; i++) {
+        if (aeronaves[i].status != 0 || eliminados[i]) { // Se 'i' já colidiu ou não está voando, ignora
+            continue;
+        }
+
+        for (int j = i + 1; j < n; j++) {
+            if (aeronaves[j].status != 0 || eliminados[j]) { // Se  'j' já colidiu ou não está voando, ignora
+                continue;
+            }
+
+            if (aeronaves[i].lado == aeronaves[j].lado && aeronaves[i].pista == aeronaves[j].pista) { // Verifica se estão na mesma pista
+                float dx = fabs(aeronaves[i].x - aeronaves[j].x);
+                float dy = fabs(aeronaves[i].y - aeronaves[j].y);
+
+                if (dx < 0.1 && dy < 0.1) {
+                    printf("COLISÃO IMINENTE entre %c e %c! Eliminando %c.\n",
+                           'A' + i, 'A' + j, 'A' + i);
+
+                    aeronaves[i].status = 2;
+                    kill(aeronaves[i].pid, SIGKILL);
+                    contadores[i].contColisoes++;
+                    eliminados[i] = 1;
+
+                    break;
+                } else if (dx < 0.25 && dy < 0.25) {
+                    float di = fabs(aeronaves[i].x - 0.5);
+                    float dj = fabs(aeronaves[j].x - 0.5);
+                    int alvo;
+
+                    if (di < dj) { // Verifica se a aeronave 'i' está mais próxima do centro da pista
+                        alvo = j;
+                    } else {
+                        alvo = i;
+                    }
+
+                    kill(aeronaves[alvo].pid, SIGUSR1);
+                    kill(aeronaves[alvo].pid, SIGUSR2);
+                }
+            }
+        }
+    }
+}
+
+
+// Função para pausar aeronaves
+void pausar_aeronaves(int n) {
+    for (int i = 0; i < n; i++) {
+        if (aeronaves[i].status == 0) {
+            kill(aeronaves[i].pid, SIGSTOP);
+        }
+    }
+}
+
+// Função para executar o ciclo de cada aeronave
+void ciclo_aeronaves(int n) {
+    for (int i = 0; i < n; i++) {
+        printf("Aeronave %c: x=%.2f, y=%.2f, velocidade=%.2f\n",
+            'A' + i, aeronaves[i].x, aeronaves[i].y, aeronaves[i].velocidade);
+        if (aeronaves[i].status == 0) {
+            kill(aeronaves[i].pid, SIGCONT);
+            sleep(1);
+            kill(aeronaves[i].pid, SIGSTOP);
+            sleep(1);
+        }
+    }
+}
+
+// Função para executar o ciclo de aeronaves seguindo o algoritmo Round Robin
+void ciclo_rr(int n) {
+    int contCiclo = 0;
+    signal(SIGTERM, encerra_aeronaves);
+    while (1) {
+        printf("Ciclo %d\n", ++contCiclo);
         ciclo_aeronaves(n);
         checar_colisoes(n);
         exibe_mapa(n);
-        sleep(1);
-    }
-}
-
-void monitorar(int n, pid_t main_pid, pid_t ciclo_pid){
-    while(1){
         int ativos = 0;
-        for(int i = 0; i < n; i++){
-            if(aeronaves[i].status == 0){
+        for (int i = 0; i < n; i++) {
+            if (aeronaves[i].status == 0) {
                 ativos++;
             }
         }
-        if(ativos == 0){
-            if(ciclo_pid){
-                kill(ciclo_pid, SIGKILL);
-            }
-            kill(main_pid, SIGKILL);
-            printf("\nTodos os avioes pousaram ou foram eliminados.\n");
+        if (ativos == 0) {
+            kill(getppid(), SIGUSR1);
+            sleep(1);
             exit(0);
         }
-        sleep(1);
     }
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     if (argc != 2) {
         printf("Uso: ./main <n_avioes>\n");
         return 1;
     }
 
-    int n = atoi(argv[1]);
-
-    int shmid = shmget(CHAVE_MEM, sizeof(Aeronave) * n, IPC_CREAT | 0666);
-    if (shmid < 0) {
-        perror("Erro ao criar memória compartilhada");
-        return 1;
-    }
-
+    n = atoi(argv[1]);
+    shmid = shmget(CHAVE_MEM, sizeof(Aeronave) * n, IPC_CREAT | 0666);
+    shcont = shmget(CHAVE_CONTADORES, sizeof(Contador) * n, IPC_CREAT | 0666);
     aeronaves = (Aeronave*) shmat(shmid, NULL, 0);
-    if (aeronaves == (void *) -1) {
-        perror("Erro ao mapear memória compartilhada");
-        return 1;
-    }
+    contadores = (Contador*) shmat(shcont, NULL, 0);
 
-    for (int i = 0; i < n; i++) {
-        char id_str[8];
-        char total_str[8];
-        sprintf(id_str, "%d", i);
-        sprintf(total_str, "%d", n);
-        if (fork() == 0) {
-            execl("./aviao", "aviao", id_str, total_str, NULL);
-            perror("execl");
-            exit(1);
-        }
-    }
+    signal(SIGUSR1, sinal_finalizacao);
 
-    sleep(1);
-    pid_t monitor;
-    pid_t main_pid = getpid();
-
-    printf("\nComandos disponiveis:\n\n");
-    printf("1 - Iniciar aeronaves\n");
-    printf("2 - Pausar aeronaves\n");
-    printf("3 - Retomar aeronaves\n");
-    printf("4 - Status das aeronaves\n");
-    printf("5 - Finalizar simulacao\n");
+    printf("\nComandos:\n1 - Iniciar\n2 - Pausar\n3 - Retomar\n4 - Status\n5 - Finalizar\n");
 
     char comando;
-    printf("\nDigite um comando: ");
-    while(1){
-        scanf("%c", &comando);
-        switch(comando){
-            case '1':
-                if (ciclo_iniciado){
-                    printf("Aeronaves ja foram iniciadas, use 3 para retomar\n");
-                }
-                else{
-                    ciclo_iniciado = 1;
-                    printf("Aeronaves inicializadas\n");
-                    ciclo = fork();
-                    if(ciclo == 0){
-                        ciclo_rr(n);
-                    }
-                    else if(ciclo < 0){
-                        perror("Erro ao iniciar aeronaves\n");
-                        return 1;
-                    }
-                    monitor = fork();
-                    if(monitor == 0){
-                        monitorar(n, main_pid, ciclo);
-                    }
-                    else if(monitor < 0){
-                        perror("Erro ao criar processo de monitoramento\n");
-                        return 1;
+    while (1) {
+        scanf(" %c", &comando);
+
+        if (comando == '1') {
+            if (!ciclo_iniciado) {
+                ciclo_iniciado = 1;
+                for (int i = 0; i < n; i++) {
+                    char id[8], total[8];
+                    sprintf(id, "%d", i);
+                    sprintf(total, "%d", n);
+                    if (fork() == 0) {
+                        execl("./aviao", "aviao", id, total, NULL);
+                        perror("execl");
+                        exit(1);
                     }
                 }
-                break;
-            case '2':
-                if(!ciclo_iniciado){
-                    printf("Aeronaves nao foram iniciadas\n");
+                sleep(3);
+                ciclo = fork();
+                if (ciclo == 0) {
+                    ciclo_rr(n);
                 }
-                else{
-                    kill(ciclo, SIGSTOP);
-                    pausar_aeronaves(n);
-                    printf("Aeronaves pausadas\n");
+            } else {
+                printf("Já iniciado.\n");
+            }
+        } else if (comando == '2') {
+            if (ciclo_iniciado) {
+                kill(ciclo, SIGSTOP);
+                pausar_aeronaves(n);
+                printf("Pausado.\n");
+            }
+            else{
+                printf("Aeronaves não foram inicializadas\n");
+            }
+        } else if (comando == '3') {
+            if (ciclo_iniciado) {
+                kill(ciclo, SIGCONT);
+                printf("Retomado.\n");
+            }
+            else{
+                printf("Aeronaves não foram inicializadas\n");
+            }
+        } else if (comando == '4') {
+            print_status(n);
+        } else if (comando == '5') {
+            if (ciclo_iniciado) {
+                kill(ciclo, SIGTERM);
+                waitpid(ciclo, NULL, 0);
+            }
+            for (int i = 0; i < n; i++) {
+                if (aeronaves[i].status == 0) {
+                    kill(aeronaves[i].pid, SIGKILL);
                 }
-                break;
-            case '3':
-                if(!ciclo_iniciado){
-                    printf("Aeronaves nao inicializadas, utilize 1 para iniciar\n");
-                }
-                else{
-                    kill(ciclo, SIGCONT);
-                    printf("Aeronaves retomadas\n");
-                }
-                break;
-            case '4':
-                print_status(n);
-                break;
-            case '5':
-                if(ciclo_iniciado){
-                    kill(ciclo, SIGKILL);
-                    waitpid(ciclo, NULL, 0);
-                }
-                if(monitor){
-                    kill(monitor, SIGKILL);
-                    waitpid(monitor, NULL, 0);
-                }
-                for(int i = 0; i < n; i++){
-                    if(aeronaves[i].status == 0){
-                        kill(aeronaves[i].pid, SIGKILL);
-                    }
-                }
-                while(wait(NULL) > 0);
-                shmdt(aeronaves);
-                shmctl(shmid, IPC_RMID, NULL);
-                printf("Simulacao finalizada\n");
-                return 0;
-            default:
-                printf("\nDigite um comando: ");
+            }
+            while (wait(NULL) > 0) {
+                // espera todos filhos
+            }
+
+            printf("\nTodos os avioes pousaram ou foram eliminados.\n");
+
+            encerrar_simulacao();
         }
     }
 }
