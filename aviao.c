@@ -18,6 +18,7 @@ typedef struct {
     int lado;
     int status;
     float velocidade;
+    int atraso;
 } Aeronave;
 
 // Estrutura para armazenar contadores de eventos
@@ -25,7 +26,6 @@ typedef struct {
     int contReducaoVelocidade;
     int contMudancasPista;
     int contColisoes;
-    int atraso;
 } Contador;
 
 Aeronave* aeronaves;
@@ -36,9 +36,15 @@ float velocidadeBase = 0.05;
 
 // Função para reduzir a velocidade da aeronave
 void reduzVelocidade(int sinal) {
-    printf("Aeronave %c reduziu a velocidade\n", 'A' + aeronave_id);
-    contadores[aeronave_id].contReducaoVelocidade++;
-    aeronaves[aeronave_id].velocidade -= 0.01;
+    if (aeronaves[aeronave_id].velocidade < 0.01) {
+        aeronaves[aeronave_id].velocidade = 0.01;
+        printf("Aeronave %c atingiu a velocidade mínima\n", 'A' + aeronave_id);
+    }
+    else{
+        contadores[aeronave_id].contReducaoVelocidade++;
+        aeronaves[aeronave_id].velocidade -= 0.01;
+        printf("Aeronave %c reduziu a velocidade\n", 'A' + aeronave_id);
+    }
 }
 
 // Função para alterar a pista da aeronave
@@ -63,6 +69,7 @@ void alterarPista(int sinal) {
         contadores[aeronave_id].contMudancasPista++;
         printf("Aeronave %c mudou para pista %d\n", 'A' + aeronave_id, aeronaves[aeronave_id].pista);
     }
+    kill(getpid(), SIGSTOP);
 }
 
 int main(int argc, char* argv[]) {
@@ -83,7 +90,7 @@ int main(int argc, char* argv[]) {
     sleep(atraso);
     printf("Aeronave %c aguardou %d segundos antes de entrar no espaço aéreo.\n", 'A' + aeronave_id, atraso);
 
-    contadores[aeronave_id].atraso = atraso;
+    aeronaves[aeronave_id].atraso = atraso;
 
     aeronaves[aeronave_id].pid = getpid();
     aeronaves[aeronave_id].lado = rand() % 2;
@@ -132,7 +139,7 @@ int main(int argc, char* argv[]) {
         float dx = aeronaves[aeronave_id].x - 0.5;
         float dy = aeronaves[aeronave_id].y - 0.5;
         float distancia = dx * dx + dy * dy;
-        aeronaves[aeronave_id].velocidade = 0.01 + velocidadeBase * distancia;
+        aeronaves[aeronave_id].velocidade = 0.02 + velocidadeBase * distancia;
     
         if (aeronaves[aeronave_id].lado == 0) {
             aeronaves[aeronave_id].x += aeronaves[aeronave_id].velocidade;

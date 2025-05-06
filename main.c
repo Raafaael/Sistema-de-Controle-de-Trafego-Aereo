@@ -22,6 +22,7 @@ typedef struct {
     int lado;
     int status;
     float velocidade;
+    int atraso;
 } Aeronave;
 
 // Estrutura para armazenar contadores de eventos
@@ -29,7 +30,6 @@ typedef struct {
     int contReducaoVelocidade;
     int contMudancasPista;
     int contColisoes;
-    int atraso;
 } Contador;
 
 Aeronave* aeronaves;
@@ -42,8 +42,8 @@ int shcont;
 
 // Função de comparação para o qsort
 int compara_atraso(const void* a, const void* b) {
-    int atraso_a = contadores[*(int*)a].atraso;
-    int atraso_b = contadores[*(int*)b].atraso;
+    int atraso_a = aeronaves[*(int*)a].atraso;
+    int atraso_b = aeronaves[*(int*)b].atraso;
     return atraso_a - atraso_b;
 }
 
