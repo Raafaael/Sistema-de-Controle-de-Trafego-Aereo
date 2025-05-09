@@ -22,6 +22,7 @@ typedef struct {
     int lado;
     int status;
     float velocidade;
+    int atraso;
 } Aeronave;
 
 // Estrutura para armazenar contadores de eventos
@@ -29,6 +30,7 @@ typedef struct {
     int contReducaoVelocidade;
     int contMudancasPista;
     int contColisoes;
+    int contPousou;
 } Contador;
 
 Aeronave* aeronaves;
@@ -39,6 +41,13 @@ int n;
 int shmid;
 int shcont;
 
+// Função de comparação para o qsort
+int compara_atraso(const void* a, const void* b) {
+    int atraso_a = aeronaves[*(int*)a].atraso;
+    int atraso_b = aeronaves[*(int*)b].atraso;
+    return atraso_a - atraso_b;
+}
+
 // Função para encerrar o processo de aeronaves
 void encerra_aeronaves(int sig) {
     exit(0);
@@ -46,17 +55,19 @@ void encerra_aeronaves(int sig) {
 
 // Função para encerrar a simulação e liberar memória compartilhada
 void encerrar_simulacao() {
-    int totalRed = 0, totalMud = 0, totalCol = 0;
+    int totalRed = 0, totalMud = 0, totalPou = 0, totalCol = 0;
     for (int i = 0; i < n; i++) {
         totalRed += contadores[i].contReducaoVelocidade;
         totalMud += contadores[i].contMudancasPista;
+        totalPou += contadores[i].contPousou;
         totalCol += contadores[i].contColisoes;
     }
 
     printf("\nResumo final:\n");
     printf("Reduções de velocidade: %d\n", totalRed);
     printf("Mudanças de pista: %d\n", totalMud);
-    printf("Colisões: %d\n", totalCol);
+    printf("Pousos de emergência: %d\n", totalCol);
+    printf("Pousos bem sucedidos: %d\n", totalPou);
 
     shmdt(aeronaves);
     shmdt(contadores);
@@ -91,7 +102,7 @@ void print_status(int n) {
         } else if (aeronaves[i].status == 1) {
             status = "POUSOU";
         } else {
-            status = "COLIDIU";
+            status = "FEZ POUSO DE EMERGÊNCIA";
         }
 
         printf("Aeronave %c | PID: %d | x: %.2f | y: %.2f | Pista: %d | Lado: %s | Status: %s | Velocidade: %.2f\n",
@@ -101,8 +112,9 @@ void print_status(int n) {
     printf("--------------------------------\n");
 }
 
+// Essa função monta o mapa de terminal
 void exibe_mapa(int n){
-    char mapa[MAPA_ALTURA][MAPA_LARGURA + 1];
+    char mapa[MAPA_ALTURA][MAPA_LARGURA + 1]; // Define tamanho do mapa 20x40
     for(int i = 0; i < MAPA_ALTURA; i++){
         for(int j = 0; j < MAPA_LARGURA; j++){
             mapa[i][j] = '.';
@@ -110,11 +122,14 @@ void exibe_mapa(int n){
         mapa[i][MAPA_LARGURA] = '\0';
     }
 
+    //Define local no aeroporto e marca no mapa como X
     int aeroporto_linha = (int)(0.5 * (MAPA_ALTURA - 1));
     int aeroporto_coluna = (int)(0.5 * (MAPA_LARGURA - 1));
     mapa[aeroporto_linha][aeroporto_coluna] = 'X';
     mapa[aeroporto_linha][aeroporto_coluna + 1] = 'X';
+    // Esse segundo X também representa o aeroporto e só é aplicado devido a proporção par do mapa
 
+    // Define a localização do avião no mapa
     for(int i = 0; i < n; i++){
         if (aeronaves[i].status != 0) continue;
         int linha = (int)(aeronaves[i].y * (MAPA_ALTURA - 1));
@@ -125,6 +140,7 @@ void exibe_mapa(int n){
 
     }
     printf("\n=== MAPA DAS AERONAVES ===\n");
+    // Esse trecho do código define as bordas do mapa
     printf("+");
     for(int i = 0; i < MAPA_LARGURA; i++){
         printf("-");
@@ -142,6 +158,7 @@ void exibe_mapa(int n){
 
 // Função para verificar colisões entre aeronaves
 void checar_colisoes(int n) {
+    printf("\n==== CHECANDO RISCO DE COLISÕES ====\n");
     int eliminados[n];
     for (int i = 0; i < n; i++) {
         eliminados[i] = 0;
@@ -161,56 +178,74 @@ void checar_colisoes(int n) {
                 float dx = fabs(aeronaves[i].x - aeronaves[j].x);
                 float dy = fabs(aeronaves[i].y - aeronaves[j].y);
 
+                // Condição para colisão iminente
                 if (dx < 0.1 && dy < 0.1) {
-                    printf("COLISÃO IMINENTE entre %c e %c! Eliminando %c.\n",
-                           'A' + i, 'A' + j, 'A' + i);
-
+                    printf("COLISÃO IMINENTE entre %c e %c! Aeronave %c fez um pouso de emergência.\n", 'A' + i, 'A' + j, 'A' + i);
                     aeronaves[i].status = 2;
                     kill(aeronaves[i].pid, SIGKILL);
                     contadores[i].contColisoes++;
                     eliminados[i] = 1;
-
                     break;
-                } else if (dx < 0.25 && dy < 0.25) {
+                }
+                // Caso as aeronaves estão muito próximas, mas não iminente
+                else if (dx < 0.25 && dy < 0.25) {
+                    // Decisão de qual ação tomar: reduzir velocidade, mudar de pista, ou ambos
                     float di = fabs(aeronaves[i].x - 0.5);
                     float dj = fabs(aeronaves[j].x - 0.5);
-                    int alvo;
+                    int alvo = -1;
 
-                    if (di < dj) { // Verifica se a aeronave 'i' está mais próxima do centro da pista
-                        alvo = j;
+                    // Verifica qual aeronave está mais próxima ao centro da pista
+                    if (di < dj) {
+                        alvo = j; // Aeronave 'j' é mais distante do centro, então ela toma a ação
                     } else {
-                        alvo = i;
+                        alvo = i; // Aeronave 'i' é mais distante do centro, então ela toma a ação
                     }
 
-                    kill(aeronaves[alvo].pid, SIGUSR1);
-                    kill(aeronaves[alvo].pid, SIGUSR2);
+                    // Determina a necessidade de cada ação
+                    if (dx < 0.15 || dy < 0.15) {
+                        // Reduzir a velocidade e mudar de pista
+                        kill(aeronaves[alvo].pid, SIGUSR1);
+                        kill(aeronaves[alvo].pid, SIGUSR2);
+                        printf("Aeronave %c fazendo ambas as ações: reduzindo velocidade e mudando de pista.\n", 'A' + alvo);
+                    } else if (dx < 0.20 || dy < 0.20) {
+                        // A aeronave está em um espaço apertado, então precisa mudar de pista
+                        kill(aeronaves[alvo].pid, SIGUSR2);
+                        printf("Aeronave %c mudando de pista.\n", 'A' + alvo);
+                    } else {
+                        // Apenas reduzir a velocidade
+                        kill(aeronaves[alvo].pid, SIGUSR1);
+                        printf("Aeronave %c reduzindo a velocidade.\n", 'A' + alvo);
+                    }
+                } else {
+                    printf("Aeronave %c e %c estão seguras.\n", 'A' + i, 'A' + j);
                 }
             }
         }
     }
 }
 
-
 // Função para pausar aeronaves
 void pausar_aeronaves(int n) {
     for (int i = 0; i < n; i++) {
         if (aeronaves[i].status == 0) {
             kill(aeronaves[i].pid, SIGSTOP);
+            sleep(1);
         }
     }
 }
 
 // Função para executar o ciclo de cada aeronave
-void ciclo_aeronaves(int n) {
-    for (int i = 0; i < n; i++) {
-        printf("Aeronave %c: x=%.2f, y=%.2f, velocidade=%.2f\n",
+void ciclo_aeronaves(int i) {
+    printf("\n==== Ciclo da aeronave %c ====\n", 'A' + i);
+    printf("Aeronave %c: x=%.2f, y=%.2f, velocidade=%.2f\n",
             'A' + i, aeronaves[i].x, aeronaves[i].y, aeronaves[i].velocidade);
-        if (aeronaves[i].status == 0) {
-            kill(aeronaves[i].pid, SIGCONT);
-            sleep(1);
-            kill(aeronaves[i].pid, SIGSTOP);
-            sleep(1);
-        }
+    if (aeronaves[i].status == 0) {  // Se a aeronave está voando
+        kill(aeronaves[i].pid, SIGCONT);  // Continuação do processo da aeronave
+        // Checa as colisões
+        checar_colisoes(n);
+        sleep(1);
+        kill(aeronaves[i].pid, SIGSTOP);  // Pausa o processo da aeronave
+        sleep(1);
     }
 }
 
@@ -218,19 +253,39 @@ void ciclo_aeronaves(int n) {
 void ciclo_rr(int n) {
     int contCiclo = 0;
     signal(SIGTERM, encerra_aeronaves);
+    int indices[n];
+    for (int i = 0; i < n; i++) {
+        indices[i] = i;
+    }
+
+    // Ordenar as aeronaves pelo atraso
+    qsort(indices, n, sizeof(int), compara_atraso);
+
     while (1) {
-        printf("Ciclo %d\n", ++contCiclo);
-        ciclo_aeronaves(n);
-        checar_colisoes(n);
+        printf("\nCiclo %d", ++contCiclo);
+
+        // Processa cada aeronave no ciclo
+        for (int i = 0; i < n; i++) {
+            int idx = indices[i];
+            if (aeronaves[idx].status == 0) {  // Só processa se a aeronave estiver voando
+                ciclo_aeronaves(idx);
+            }
+        }
+        
+        // Exibe o mapa das aeronaves
         exibe_mapa(n);
+
+        // Conta quantas aeronaves ainda estão ativas (voando)
         int ativos = 0;
         for (int i = 0; i < n; i++) {
             if (aeronaves[i].status == 0) {
                 ativos++;
             }
         }
+
+        // Se todas as aeronaves pousaram ou colidiram, encerra a simulação
         if (ativos == 0) {
-            kill(getppid(), SIGUSR1);
+            kill(getppid(), SIGUSR1);  // Envia sinal para finalizar o programa
             sleep(1);
             exit(0);
         }
@@ -251,19 +306,21 @@ int main(int argc, char* argv[]) {
 
     signal(SIGUSR1, sinal_finalizacao);
 
+    // Esse trecho do código representa a interface do terminal
     printf("\nComandos:\n1 - Iniciar\n2 - Pausar\n3 - Retomar\n4 - Status\n5 - Finalizar\n");
 
     char comando;
     while (1) {
-        scanf(" %c", &comando);
-
+        scanf(" %c", &comando); // Lê o input do usuário
         if (comando == '1') {
+            // Inicia o ciclo caso ele não tenha sido iniciado
             if (!ciclo_iniciado) {
-                ciclo_iniciado = 1;
+                ciclo_iniciado = 1; // Define o ciclo como iniciado
                 for (int i = 0; i < n; i++) {
                     char id[8], total[8];
                     sprintf(id, "%d", i);
                     sprintf(total, "%d", n);
+                    // Inicializa as aeronaves
                     if (fork() == 0) {
                         execl("./aviao", "aviao", id, total, NULL);
                         perror("execl");
@@ -271,6 +328,8 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 sleep(3);
+                pausar_aeronaves(n); // Garante um inicio controlado
+                // Inicializa o ciclo round robin
                 ciclo = fork();
                 if (ciclo == 0) {
                     ciclo_rr(n);
@@ -278,6 +337,8 @@ int main(int argc, char* argv[]) {
             } else {
                 printf("Já iniciado.\n");
             }
+        
+        // Pausa as aeronaves que não colidiram se o ciclo foi inicializado
         } else if (comando == '2') {
             if (ciclo_iniciado) {
                 kill(ciclo, SIGSTOP);
@@ -287,6 +348,8 @@ int main(int argc, char* argv[]) {
             else{
                 printf("Aeronaves não foram inicializadas\n");
             }
+        
+        // Retoma o ciclo caso ele já tenha sido inicializado
         } else if (comando == '3') {
             if (ciclo_iniciado) {
                 kill(ciclo, SIGCONT);
@@ -295,8 +358,12 @@ int main(int argc, char* argv[]) {
             else{
                 printf("Aeronaves não foram inicializadas\n");
             }
+
+        // Exibe os status das aeronaves
         } else if (comando == '4') {
             print_status(n);
+        
+        // Encerra o programa
         } else if (comando == '5') {
             if (ciclo_iniciado) {
                 kill(ciclo, SIGTERM);
